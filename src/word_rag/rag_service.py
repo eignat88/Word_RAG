@@ -1,14 +1,11 @@
 from __future__ import annotations
 
 from pathlib import Path
-from time import perf_counter
-from typing import Callable
 
 from .chunking import build_chunks
 from .config import Settings
 from .docx_parser import extract_fd_number, parse_docx_sections
 from .embeddings import OllamaClient
-from .filtering import should_skip_chunk
 from .models import SearchResult
 from .storage import KnowledgeBaseStore
 from .storage_sqlite import SQLiteKnowledgeBaseStore
@@ -21,34 +18,18 @@ class RagService:
             base_url=settings.ollama_base_url,
             embedding_model=settings.embedding_model,
             llm_model=settings.llm_model,
-            embed_timeout_sec=settings.embed_timeout_sec,
-            llm_timeout_sec=settings.llm_timeout_sec,
         )
         if settings.storage_backend.lower() == "postgres":
             self.store = KnowledgeBaseStore(database_url=settings.database_url)
         else:
             self.store = SQLiteKnowledgeBaseStore(sqlite_path=settings.sqlite_path)
 
-    def ingest_directory(
-        self,
-        directory: str,
-        replace: bool = True,
-        progress_callback: Callable[[dict], None] | None = None,
-    ) -> dict[str, int | float]:
+    def ingest_directory(self, directory: str, replace: bool = True) -> dict[str, int]:
         base = Path(directory)
-        files = sorted(base.glob("*.docx"))
         processed_docs = 0
         inserted_chunks = 0
-        skipped_chunks = 0
-        start_ts = perf_counter()
 
-        if progress_callback:
-            progress_callback({"event": "start", "total_documents": len(files), "directory": str(base)})
-
-        for idx, path in enumerate(files, start=1):
-            doc_start_ts = perf_counter()
-            if progress_callback:
-                progress_callback({"event": "document_start", "index": idx, "total_documents": len(files), "document_name": path.name})
+        for path in sorted(base.glob("*.docx")):
             sections = parse_docx_sections(path)
             fd_number = extract_fd_number(path.name)
 
@@ -59,48 +40,14 @@ class RagService:
                 min_chars=self.settings.chunk_min_chars,
                 max_chars=self.settings.chunk_max_chars,
             )
-
-            filtered_chunks = []
-            doc_skipped = 0
-            for chunk in chunks:
-                if should_skip_chunk(chunk.chunk_text, chunk.section, min_chars=self.settings.index_min_chars):
-                    skipped_chunks += 1
-                    doc_skipped += 1
-                    continue
-                filtered_chunks.append(chunk)
-
             if replace:
                 self.store.delete_document(path.name)
 
-            embeddings = [self.ollama.embed(c.chunk_text) for c in filtered_chunks]
-            inserted_for_doc = self.store.upsert_chunks(filtered_chunks, embeddings)
-            inserted_chunks += inserted_for_doc
+            embeddings = [self.ollama.embed(c.chunk_text) for c in chunks]
+            inserted_chunks += self.store.upsert_chunks(chunks, embeddings)
             processed_docs += 1
-            if progress_callback:
-                progress_callback(
-                    {
-                        "event": "document_done",
-                        "index": idx,
-                        "total_documents": len(files),
-                        "document_name": path.name,
-                        "inserted_chunks": inserted_for_doc,
-                        "skipped_chunks": doc_skipped,
-                        "elapsed_sec": round(perf_counter() - doc_start_ts, 2),
-                    }
-                )
 
-        elapsed = round(perf_counter() - start_ts, 2)
-        if progress_callback:
-            progress_callback(
-                {
-                    "event": "done",
-                    "documents": processed_docs,
-                    "chunks": inserted_chunks,
-                    "skipped_chunks": skipped_chunks,
-                    "elapsed_sec": elapsed,
-                }
-            )
-        return {"documents": processed_docs, "chunks": inserted_chunks, "skipped_chunks": skipped_chunks, "elapsed_sec": elapsed}
+        return {"documents": processed_docs, "chunks": inserted_chunks}
 
     def search(self, question: str, fd_number: str | None = None, section: str | None = None, top_k: int | None = None) -> list[SearchResult]:
         query_emb = self.ollama.embed(question)
