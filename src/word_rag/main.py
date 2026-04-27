@@ -37,26 +37,7 @@ def main() -> None:
     service = RagService(Settings())
 
     if args.command == "ingest":
-        def on_progress(event: dict) -> None:
-            event_type = event.get("event")
-            if event_type == "start":
-                print(f"[ingest] start: directory={event['directory']} files={event['total_documents']}", flush=True)
-            elif event_type == "document_start":
-                print(f"[ingest] [{event['index']}/{event['total_documents']}] processing {event['document_name']} ...", flush=True)
-            elif event_type == "document_done":
-                print(
-                    f"[ingest] [{event['index']}/{event['total_documents']}] done {event['document_name']} "
-                    f"(inserted={event['inserted_chunks']}, skipped={event['skipped_chunks']}, {event['elapsed_sec']}s)",
-                    flush=True,
-                )
-            elif event_type == "done":
-                print(
-                    f"[ingest] finished: documents={event['documents']}, chunks={event['chunks']}, "
-                    f"skipped={event['skipped_chunks']}, elapsed={event['elapsed_sec']}s",
-                    flush=True,
-                )
-
-        result = service.ingest_directory(args.directory, replace=not args.no_replace, progress_callback=on_progress)
+        result = service.ingest_directory(args.directory, replace=not args.no_replace)
         print(json.dumps(result, ensure_ascii=False, indent=2))
     elif args.command == "search":
         result = service.search(
