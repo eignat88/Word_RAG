@@ -25,20 +25,34 @@ class KnowledgeBaseStore:
 
         with self.connection() as conn, conn.cursor() as cur:
             for chunk, emb in rows:
+                cur.execute(
+                    """
+                    INSERT INTO ai.ai_fd_documents (document_name, fd_number, updated_at)
+                    VALUES (%s, %s, now())
+                    ON CONFLICT (document_name)
+                    DO UPDATE SET
+                        fd_number = EXCLUDED.fd_number,
+                        updated_at = now()
+                    RETURNING id
+                    """,
+                    (chunk.document_name, chunk.fd_number),
+                )
+                document_id = cur.fetchone()[0]
+
                 emb_sql = "[" + ",".join(f"{x:.8f}" for x in emb) + "]"
                 cur.execute(
                     """
-                    INSERT INTO knowledge_base (document_name, fd_number, section, chunk_text, embedding)
-                    VALUES (%s, %s, %s, %s, %s::vector)
+                    INSERT INTO ai.ai_fd_chunks (document_id, section, chunk_text, embedding)
+                    VALUES (%s, %s, %s, %s::vector)
                     """,
-                    (chunk.document_name, chunk.fd_number, chunk.section, chunk.chunk_text, emb_sql),
+                    (document_id, chunk.section, chunk.chunk_text, emb_sql),
                 )
             conn.commit()
         return len(rows)
 
     def delete_document(self, document_name: str) -> None:
         with self.connection() as conn, conn.cursor() as cur:
-            cur.execute("DELETE FROM knowledge_base WHERE document_name = %s", (document_name,))
+            cur.execute("DELETE FROM ai.ai_fd_documents WHERE document_name = %s", (document_name,))
             conn.commit()
 
     def search(self, query_embedding: list[float], top_k: int, fd_number: str | None = None, section: str | None = None) -> list[SearchResult]:
@@ -47,21 +61,26 @@ class KnowledgeBaseStore:
         conditions = []
         filter_params: list[object] = []
         if fd_number:
-            conditions.append("fd_number = %s")
+            conditions.append("d.fd_number = %s")
             filter_params.append(fd_number)
         if section:
-            conditions.append("section = %s")
+            conditions.append("c.section = %s")
             filter_params.append(section)
 
         where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         params: list[object] = [emb_sql, *filter_params, emb_sql, top_k]
 
         sql = f"""
-            SELECT id, document_name, fd_number, section, chunk_text,
-                   embedding <-> %s::vector AS distance
-            FROM knowledge_base
+            SELECT c.id,
+                   d.document_name,
+                   d.fd_number,
+                   c.section,
+                   c.chunk_text,
+                   c.embedding <-> %s::vector AS distance
+            FROM ai.ai_fd_chunks c
+            JOIN ai.ai_fd_documents d ON d.id = c.document_id
             {where_clause}
-            ORDER BY embedding <-> %s::vector
+            ORDER BY c.embedding <-> %s::vector
             LIMIT %s
         """
 

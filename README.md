@@ -67,9 +67,14 @@ python -m word_rag.main ask "как работает алгоритм закры
 
 ```bash
 export STORAGE_BACKEND=postgres
-export DATABASE_URL=postgresql://postgres:postgres@localhost:5432/word_rag
+export DATABASE_URL=postgresql://postgres:postgres@localhost:5432/postgres
 psql "$DATABASE_URL" -f migrations/001_init.sql
 ```
+
+После миграции используются:
+- БД: `postgres`
+- Схема: `ai`
+- Таблицы: `ai.ai_fd_documents`, `ai.ai_fd_chunks`
 
 `docker-compose.yml` оставлен как необязательный вариант для тех, у кого Docker есть.
 
