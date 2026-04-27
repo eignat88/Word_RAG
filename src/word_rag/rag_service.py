@@ -6,7 +6,6 @@ from .chunking import build_chunks
 from .config import Settings
 from .docx_parser import extract_fd_number, parse_docx_sections
 from .embeddings import OllamaClient
-from .filtering import should_skip_chunk
 from .models import SearchResult
 from .storage import KnowledgeBaseStore
 from .storage_sqlite import SQLiteKnowledgeBaseStore
@@ -29,7 +28,6 @@ class RagService:
         base = Path(directory)
         processed_docs = 0
         inserted_chunks = 0
-        skipped_chunks = 0
 
         for path in sorted(base.glob("*.docx")):
             sections = parse_docx_sections(path)
@@ -42,22 +40,14 @@ class RagService:
                 min_chars=self.settings.chunk_min_chars,
                 max_chars=self.settings.chunk_max_chars,
             )
-
-            filtered_chunks = []
-            for chunk in chunks:
-                if should_skip_chunk(chunk.chunk_text, chunk.section, min_chars=self.settings.index_min_chars):
-                    skipped_chunks += 1
-                    continue
-                filtered_chunks.append(chunk)
-
             if replace:
                 self.store.delete_document(path.name)
 
-            embeddings = [self.ollama.embed(c.chunk_text) for c in filtered_chunks]
-            inserted_chunks += self.store.upsert_chunks(filtered_chunks, embeddings)
+            embeddings = [self.ollama.embed(c.chunk_text) for c in chunks]
+            inserted_chunks += self.store.upsert_chunks(chunks, embeddings)
             processed_docs += 1
 
-        return {"documents": processed_docs, "chunks": inserted_chunks, "skipped_chunks": skipped_chunks}
+        return {"documents": processed_docs, "chunks": inserted_chunks}
 
     def search(self, question: str, fd_number: str | None = None, section: str | None = None, top_k: int | None = None) -> list[SearchResult]:
         query_emb = self.ollama.embed(question)

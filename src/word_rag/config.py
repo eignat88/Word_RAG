@@ -13,4 +13,3 @@ class Settings:
     top_k: int = field(default_factory=lambda: int(os.getenv("TOP_K", "5")))
     chunk_min_chars: int = field(default_factory=lambda: int(os.getenv("CHUNK_MIN_CHARS", "300")))
     chunk_max_chars: int = field(default_factory=lambda: int(os.getenv("CHUNK_MAX_CHARS", "1000")))
-    index_min_chars: int = field(default_factory=lambda: int(os.getenv("INDEX_MIN_CHARS", "100")))
