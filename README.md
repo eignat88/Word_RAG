@@ -26,7 +26,7 @@ pip install -e .[dev]
 ### 2) Запустить Ollama и скачать модели
 ```bash
 ollama pull nomic-embed-text
-ollama pull llama3
+ollama pull llama3.1:8b
 ```
 
 ### 3) Запустить API (по умолчанию SQLite backend)
@@ -38,8 +38,6 @@ uvicorn word_rag.api:app --reload
 ```bash
 python -m word_rag.main ingest ./docs_fd
 ```
-
-Во время индексации автоматически отфильтровываются мусорные чанки (например `Нет.`, `-`, слишком короткие фрагменты). Минимальный порог задается `INDEX_MIN_CHARS` (по умолчанию `100`).
 
 ## CLI примеры
 
@@ -62,20 +60,14 @@ python -m word_rag.main ask "как работает алгоритм закры
 ## Ограничения текущего этапа
 - Начальная реализация (MVP foundation).
 - Требуется локально запущенный Ollama с доступными моделями embedding/LLM.
-- Если у тебя уже используются переменные `EMBED_MODEL` и `LLM_MODEL`, проект их поддерживает напрямую.
 
 ## Опционально: PostgreSQL + pgvector (если нужен production-like режим)
 Если PostgreSQL уже установлен локально (без Docker), можно переключиться на него:
 
 ```bash
 export STORAGE_BACKEND=postgres
-export DATABASE_URL=postgresql://postgres:postgres@localhost:5432/postgres
+export DATABASE_URL=postgresql://postgres:postgres@localhost:5432/word_rag
 psql "$DATABASE_URL" -f migrations/001_init.sql
 ```
-
-После миграции используются:
-- БД: `postgres`
-- Схема: `ai`
-- Таблицы: `ai.ai_fd_documents`, `ai.ai_fd_chunks`
 
 `docker-compose.yml` оставлен как необязательный вариант для тех, у кого Docker есть.
