@@ -21,3 +21,7 @@ def test_sqlite_search_and_filters(tmp_path: Path):
     filtered = store.search([1.0, 0.0], top_k=2, fd_number="DAX-2")
     assert len(filtered) == 1
     assert filtered[0].fd_number == "DAX-2"
+
+    text_fallback = store.search_by_text("beta", top_k=2)
+    assert len(text_fallback) == 1
+    assert text_fallback[0].document_name == "DAX-2.docx"

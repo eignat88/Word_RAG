@@ -75,11 +75,13 @@ class RagService:
                     continue
                 filtered_chunks.append(chunk)
 
-            if replace:
-                self.store.delete_document(path.name)
-
             embeddings = [self.ollama.embed(c.chunk_text) for c in filtered_chunks]
-            saved_chunks = self.store.upsert_chunks_with_ids(filtered_chunks, embeddings)
+            if replace and hasattr(self.store, "replace_document_chunks_with_ids"):
+                saved_chunks = self.store.replace_document_chunks_with_ids(path.name, filtered_chunks, embeddings)
+            else:
+                if replace:
+                    self.store.delete_document(path.name)
+                saved_chunks = self.store.upsert_chunks_with_ids(filtered_chunks, embeddings)
             inserted_for_doc = len(saved_chunks)
             inserted_chunks += inserted_for_doc
             processed_docs += 1
@@ -133,12 +135,22 @@ class RagService:
 
     def search(self, question: str, fd_number: str | None = None, section: str | None = None, top_k: int | None = None) -> list[SearchResult]:
         query_emb = self.ollama.embed(question)
-        return self.store.search(
+        results = self.store.search(
             query_embedding=query_emb,
             top_k=top_k or self.settings.top_k,
             fd_number=fd_number,
             section=section,
         )
+        if results:
+            return results
+        if question.strip() and hasattr(self.store, "search_by_text"):
+            return self.store.search_by_text(
+                query_text=question,
+                top_k=top_k or self.settings.top_k,
+                fd_number=fd_number,
+                section=section,
+            )
+        return results
 
     def answer(self, question: str, fd_number: str | None = None, section: str | None = None, top_k: int | None = None) -> dict:
         results = self.search(question=question, fd_number=fd_number, section=section, top_k=top_k)
