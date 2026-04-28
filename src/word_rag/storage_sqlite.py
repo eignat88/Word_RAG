@@ -64,6 +64,36 @@ class SQLiteKnowledgeBaseStore:
         with sqlite3.connect(self.sqlite_path) as conn:
             conn.execute("DELETE FROM knowledge_base WHERE document_name = ?", (document_name,))
 
+    def replace_document_chunks_with_ids(
+        self,
+        document_name: str,
+        chunks: Iterable[ChunkRecord],
+        embeddings: Iterable[list[float]],
+    ) -> list[dict]:
+        rows = list(zip(chunks, embeddings, strict=True))
+        if not rows:
+            return []
+
+        saved: list[dict] = []
+        with sqlite3.connect(self.sqlite_path) as conn:
+            conn.execute("DELETE FROM knowledge_base WHERE document_name = ?", (document_name,))
+            for chunk, emb in rows:
+                cur = conn.execute(
+                    """
+                    INSERT INTO knowledge_base (document_name, fd_number, section, chunk_text, embedding)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        chunk.document_name,
+                        chunk.fd_number,
+                        chunk.section,
+                        chunk.chunk_text,
+                        json.dumps(emb),
+                    ),
+                )
+                saved.append({"chunk_id": int(cur.lastrowid), "chunk_text": chunk.chunk_text, "document_id": None})
+        return saved
+
     def search(self, query_embedding: list[float], top_k: int, fd_number: str | None = None, section: str | None = None) -> list[SearchResult]:
         clauses = []
         params: list[str] = []

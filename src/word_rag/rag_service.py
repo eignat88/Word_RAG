@@ -75,11 +75,13 @@ class RagService:
                     continue
                 filtered_chunks.append(chunk)
 
-            if replace:
-                self.store.delete_document(path.name)
-
             embeddings = [self.ollama.embed(c.chunk_text) for c in filtered_chunks]
-            saved_chunks = self.store.upsert_chunks_with_ids(filtered_chunks, embeddings)
+            if replace and hasattr(self.store, "replace_document_chunks_with_ids"):
+                saved_chunks = self.store.replace_document_chunks_with_ids(path.name, filtered_chunks, embeddings)
+            else:
+                if replace:
+                    self.store.delete_document(path.name)
+                saved_chunks = self.store.upsert_chunks_with_ids(filtered_chunks, embeddings)
             inserted_for_doc = len(saved_chunks)
             inserted_chunks += inserted_for_doc
             processed_docs += 1
