@@ -119,7 +119,11 @@
 
 ## Этап 5. UI и эксплуатация
 
+<<<<<<< codex/develop-document-knowledge-base-system-pqzlof
+### KB-RAG-11: Чат-интерфейс MVP (Web UI)
+=======
 ### KB-RAG-11: Чат-интерфейс MVP
+>>>>>>> main
 **Описание**
 - Поле ввода вопроса.
 - Блок ответа.
