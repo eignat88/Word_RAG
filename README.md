@@ -31,12 +31,12 @@ ollama pull llama3
 
 ### 3) Запустить API (по умолчанию SQLite backend)
 ```bash
-uvicorn word_rag.api:app --reload
+python -m uvicorn src.word_rag.api:app --reload --host 127.0.0.1 --port 8010
 ```
 
 После запуска:
-- UI чат: `http://127.0.0.1:8000/`
-- Swagger: `http://127.0.0.1:8000/docs`
+- UI чат: `http://127.0.0.1:8010/`
+- Swagger: `http://127.0.0.1:8010/docs`
 
 ### 4) Индексация документов
 ```bash
