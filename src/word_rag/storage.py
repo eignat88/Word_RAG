@@ -121,41 +121,45 @@ class KnowledgeBaseStore:
         ).format(chunks=self._chunks_ident(), emb=sql.SQL("%s::vector") if self._embedding_is_vector else sql.SQL("%s"))
         return query, "legacy"
 
+    def _upsert_chunks_with_ids_in_tx(self, cur, rows: list[tuple[ChunkRecord, list[float]]]) -> list[dict]:
+        self._load_schema_info(cur)
+        upsert_doc_sql, doc_mode = self._build_document_upsert_sql()
+        insert_chunk_sql, chunk_mode = self._build_chunk_insert_sql()
+
+        saved: list[dict] = []
+        for chunk, emb in rows:
+            if doc_mode == "new":
+                cur.execute(upsert_doc_sql, (chunk.document_name, chunk.document_name, chunk.fd_number))
+            else:
+                cur.execute(upsert_doc_sql, (chunk.document_name, chunk.fd_number))
+            document_id = cur.fetchone()[0]
+
+            embedding_value = emb if not self._embedding_is_vector else "[" + ",".join(f"{x:.8f}" for x in emb) + "]"
+
+            if chunk_mode == "new":
+                params: list[object] = [document_id, chunk.section, chunk.chunk_text, embedding_value]
+                if "section_number" in self._chunk_columns:
+                    params.append(0)
+                if "chunk_type" in self._chunk_columns:
+                    params.append("section")
+                cur.execute(insert_chunk_sql + sql.SQL(" RETURNING id"), params)
+            else:
+                cur.execute(insert_chunk_sql + sql.SQL(" RETURNING id"), (document_id, chunk.section, chunk.chunk_text, embedding_value))
+
+            chunk_id = cur.fetchone()[0]
+            saved.append({"chunk_id": chunk_id, "chunk_text": chunk.chunk_text, "document_id": document_id})
+
+        return saved
+
     def upsert_chunks_with_ids(self, chunks: Iterable[ChunkRecord], embeddings: Iterable[list[float]]) -> list[dict]:
         rows = list(zip(chunks, embeddings, strict=True))
         if not rows:
             return []
 
         with self.connection() as conn, conn.cursor() as cur:
-            self._load_schema_info(cur)
-            upsert_doc_sql, doc_mode = self._build_document_upsert_sql()
-            insert_chunk_sql, chunk_mode = self._build_chunk_insert_sql()
-
-            saved: list[dict] = []
-            for chunk, emb in rows:
-                if doc_mode == "new":
-                    cur.execute(upsert_doc_sql, (chunk.document_name, chunk.document_name, chunk.fd_number))
-                else:
-                    cur.execute(upsert_doc_sql, (chunk.document_name, chunk.fd_number))
-                document_id = cur.fetchone()[0]
-
-                embedding_value = emb if not self._embedding_is_vector else "[" + ",".join(f"{x:.8f}" for x in emb) + "]"
-
-                if chunk_mode == "new":
-                    params: list[object] = [document_id, chunk.section, chunk.chunk_text, embedding_value]
-                    if "section_number" in self._chunk_columns:
-                        params.append(0)
-                    if "chunk_type" in self._chunk_columns:
-                        params.append("section")
-                    cur.execute(insert_chunk_sql + sql.SQL(" RETURNING id"), params)
-                else:
-                    cur.execute(insert_chunk_sql + sql.SQL(" RETURNING id"), (document_id, chunk.section, chunk.chunk_text, embedding_value))
-
-                chunk_id = cur.fetchone()[0]
-                saved.append({"chunk_id": chunk_id, "chunk_text": chunk.chunk_text, "document_id": document_id})
-
+            saved = self._upsert_chunks_with_ids_in_tx(cur, rows)
             conn.commit()
-        return saved
+            return saved
 
     def upsert_chunks(self, chunks: Iterable[ChunkRecord], embeddings: Iterable[list[float]]) -> int:
         return len(self.upsert_chunks_with_ids(chunks, embeddings))
@@ -171,14 +175,37 @@ class KnowledgeBaseStore:
             cur.execute(delete_sql, (document_name,))
             conn.commit()
 
+    def replace_document_chunks_with_ids(
+        self,
+        document_name: str,
+        chunks: Iterable[ChunkRecord],
+        embeddings: Iterable[list[float]],
+    ) -> list[dict]:
+        rows = list(zip(chunks, embeddings, strict=True))
+        if not rows:
+            return []
+
+        with self.connection() as conn, conn.cursor() as cur:
+            self._load_schema_info(cur)
+            if "source_file" in self._doc_columns:
+                delete_sql = sql.SQL("DELETE FROM {docs} WHERE source_file = %s").format(docs=self._docs_ident())
+            else:
+                delete_sql = sql.SQL("DELETE FROM {docs} WHERE document_name = %s").format(docs=self._docs_ident())
+
+            cur.execute(delete_sql, (document_name,))
+            saved = self._upsert_chunks_with_ids_in_tx(cur, rows)
+            conn.commit()
+            return saved
+
     def search(self, query_embedding: list[float], top_k: int, fd_number: str | None = None, section: str | None = None) -> list[SearchResult]:
         with self.connection() as conn, conn.cursor() as cur:
             self._load_schema_info(cur)
-
-            if self._embedding_is_vector:
-                return self._search_vector(cur, query_embedding, top_k, fd_number, section)
-
             return self._search_python_cosine(cur, query_embedding, top_k, fd_number, section)
+
+    def search_by_text(self, query_text: str, top_k: int, fd_number: str | None = None, section: str | None = None) -> list[SearchResult]:
+        with self.connection() as conn, conn.cursor() as cur:
+            self._load_schema_info(cur)
+            return self._search_text(cur, query_text, top_k, fd_number, section)
 
     def _search_vector(self, cur, query_embedding: list[float], top_k: int, fd_number: str | None, section: str | None) -> list[SearchResult]:
         emb_sql = "[" + ",".join(f"{x:.8f}" for x in query_embedding) + "]"
@@ -261,8 +288,6 @@ class KnowledgeBaseStore:
             FROM {chunks} c
             JOIN {docs} d ON d.id = c.document_id
             {where_clause}
-            ORDER BY c.id DESC
-            LIMIT %s
             """
         ).format(
             doc_name=sql.Identifier(doc_name_col),
@@ -273,7 +298,6 @@ class KnowledgeBaseStore:
             where_clause=where_sql,
         )
 
-        params.append(max(top_k * 10, 50))
         cur.execute(query_sql, params)
         rows = cur.fetchall()
 
@@ -289,6 +313,50 @@ class KnowledgeBaseStore:
         return [
             SearchResult(id=row[0], document_name=row[1], fd_number=row[2], section=row[3], chunk_text=row[4], distance=float(distance))
             for distance, row in top_rows
+        ]
+
+    def _search_text(self, cur, query_text: str, top_k: int, fd_number: str | None, section: str | None) -> list[SearchResult]:
+        doc_name_col = "title" if "title" in self._doc_columns else "document_name"
+        fd_col = "dax_code" if "dax_code" in self._doc_columns else "fd_number"
+        section_col = "section_title" if "section_title" in self._chunk_columns else "section"
+
+        conditions = [sql.SQL("c.chunk_text ILIKE %s")]
+        params: list[object] = [f"%{query_text.strip()}%"]
+        if fd_number:
+            conditions.append(sql.SQL("d.{fd} = %s").format(fd=sql.Identifier(fd_col)))
+            params.append(fd_number)
+        if section:
+            conditions.append(sql.SQL("c.{section} = %s").format(section=sql.Identifier(section_col)))
+            params.append(section)
+
+        where_sql = sql.SQL(" WHERE ") + sql.SQL(" AND ").join(conditions)
+        query_sql = sql.SQL(
+            """
+            SELECT c.id,
+                   d.{doc_name},
+                   d.{fd_col},
+                   c.{section_col},
+                   c.chunk_text
+            FROM {chunks} c
+            JOIN {docs} d ON d.id = c.document_id
+            {where_clause}
+            ORDER BY c.id DESC
+            LIMIT %s
+            """
+        ).format(
+            doc_name=sql.Identifier(doc_name_col),
+            fd_col=sql.Identifier(fd_col),
+            section_col=sql.Identifier(section_col),
+            chunks=self._chunks_ident(),
+            docs=self._docs_ident(),
+            where_clause=where_sql,
+        )
+        params.append(top_k)
+        cur.execute(query_sql, params)
+        rows = cur.fetchall()
+        return [
+            SearchResult(id=row[0], document_name=row[1], fd_number=row[2], section=row[3], chunk_text=row[4], distance=1.0)
+            for row in rows
         ]
 
     def upsert_entity(self, conn, entity_type: str, entity_value: str) -> int:
