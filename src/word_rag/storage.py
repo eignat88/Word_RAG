@@ -200,6 +200,8 @@ class KnowledgeBaseStore:
     def search(self, query_embedding: list[float], top_k: int, fd_number: str | None = None, section: str | None = None) -> list[SearchResult]:
         with self.connection() as conn, conn.cursor() as cur:
             self._load_schema_info(cur)
+            if self._embedding_is_vector:
+                return self._search_vector(cur, query_embedding, top_k, fd_number, section)
             return self._search_python_cosine(cur, query_embedding, top_k, fd_number, section)
 
     def search_by_text(self, query_text: str, top_k: int, fd_number: str | None = None, section: str | None = None) -> list[SearchResult]:
