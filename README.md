@@ -34,6 +34,10 @@ ollama pull llama3
 uvicorn word_rag.api:app --reload
 ```
 
+После запуска:
+- UI чат: `http://127.0.0.1:8000/`
+- Swagger: `http://127.0.0.1:8000/docs`
+
 ### 4) Индексация документов
 ```bash
 python -m word_rag.main ingest ./docs_fd
