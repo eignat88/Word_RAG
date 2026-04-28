@@ -206,6 +206,11 @@ class KnowledgeBaseStore:
 
             return self._search_python_cosine(cur, query_embedding, top_k, fd_number, section)
 
+    def search_by_text(self, query_text: str, top_k: int, fd_number: str | None = None, section: str | None = None) -> list[SearchResult]:
+        with self.connection() as conn, conn.cursor() as cur:
+            self._load_schema_info(cur)
+            return self._search_text(cur, query_text, top_k, fd_number, section)
+
     def _search_vector(self, cur, query_embedding: list[float], top_k: int, fd_number: str | None, section: str | None) -> list[SearchResult]:
         emb_sql = "[" + ",".join(f"{x:.8f}" for x in query_embedding) + "]"
 
@@ -312,6 +317,50 @@ class KnowledgeBaseStore:
         return [
             SearchResult(id=row[0], document_name=row[1], fd_number=row[2], section=row[3], chunk_text=row[4], distance=float(distance))
             for distance, row in top_rows
+        ]
+
+    def _search_text(self, cur, query_text: str, top_k: int, fd_number: str | None, section: str | None) -> list[SearchResult]:
+        doc_name_col = "title" if "title" in self._doc_columns else "document_name"
+        fd_col = "dax_code" if "dax_code" in self._doc_columns else "fd_number"
+        section_col = "section_title" if "section_title" in self._chunk_columns else "section"
+
+        conditions = [sql.SQL("c.chunk_text ILIKE %s")]
+        params: list[object] = [f"%{query_text.strip()}%"]
+        if fd_number:
+            conditions.append(sql.SQL("d.{fd} = %s").format(fd=sql.Identifier(fd_col)))
+            params.append(fd_number)
+        if section:
+            conditions.append(sql.SQL("c.{section} = %s").format(section=sql.Identifier(section_col)))
+            params.append(section)
+
+        where_sql = sql.SQL(" WHERE ") + sql.SQL(" AND ").join(conditions)
+        query_sql = sql.SQL(
+            """
+            SELECT c.id,
+                   d.{doc_name},
+                   d.{fd_col},
+                   c.{section_col},
+                   c.chunk_text
+            FROM {chunks} c
+            JOIN {docs} d ON d.id = c.document_id
+            {where_clause}
+            ORDER BY c.id DESC
+            LIMIT %s
+            """
+        ).format(
+            doc_name=sql.Identifier(doc_name_col),
+            fd_col=sql.Identifier(fd_col),
+            section_col=sql.Identifier(section_col),
+            chunks=self._chunks_ident(),
+            docs=self._docs_ident(),
+            where_clause=where_sql,
+        )
+        params.append(top_k)
+        cur.execute(query_sql, params)
+        rows = cur.fetchall()
+        return [
+            SearchResult(id=row[0], document_name=row[1], fd_number=row[2], section=row[3], chunk_text=row[4], distance=1.0)
+            for row in rows
         ]
 
     def upsert_entity(self, conn, entity_type: str, entity_value: str) -> int:

@@ -12,6 +12,7 @@ class DummyStore:
         self.replaced = False
         self.deleted = False
         self.upserted = False
+        self.text_search_called = False
 
     def replace_document_chunks_with_ids(self, document_name, chunks, embeddings):
         self.replaced = True
@@ -23,6 +24,13 @@ class DummyStore:
     def upsert_chunks_with_ids(self, chunks, embeddings):
         self.upserted = True
         return [{"chunk_id": 1, "chunk_text": "chunk", "document_id": 1}]
+
+    def search(self, query_embedding, top_k, fd_number=None, section=None):
+        return []
+
+    def search_by_text(self, query_text, top_k, fd_number=None, section=None):
+        self.text_search_called = True
+        return [SimpleNamespace(id=1, document_name="doc1.docx", fd_number="FD-1", section="S", chunk_text="chunk", distance=1.0)]
 
 
 
@@ -84,3 +92,17 @@ def test_replace_does_not_delete_if_embedding_fails(tmp_path: Path, monkeypatch)
     assert store.replaced is False
     assert store.deleted is False
     assert store.upserted is False
+
+
+def test_search_uses_text_fallback_when_semantic_results_empty():
+    store = DummyStore()
+    service = _service_with(
+        store,
+        SimpleNamespace(embed=lambda text: [0.1, 0.2]),
+    )
+    service.settings.top_k = 3
+
+    results = service.search("негабарит им")
+
+    assert len(results) == 1
+    assert store.text_search_called is True

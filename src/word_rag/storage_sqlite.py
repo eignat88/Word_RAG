@@ -131,6 +131,39 @@ class SQLiteKnowledgeBaseStore:
             for dist, row in top_rows
         ]
 
+    def search_by_text(self, query_text: str, top_k: int, fd_number: str | None = None, section: str | None = None) -> list[SearchResult]:
+        clauses = ["chunk_text LIKE ?"]
+        params: list[str] = [f"%{query_text.strip()}%"]
+        if fd_number:
+            clauses.append("fd_number = ?")
+            params.append(fd_number)
+        if section:
+            clauses.append("section = ?")
+            params.append(section)
+
+        where = f"WHERE {' AND '.join(clauses)}"
+        sql = f"""
+            SELECT id, document_name, fd_number, section, chunk_text
+            FROM knowledge_base
+            {where}
+            ORDER BY id DESC
+            LIMIT ?
+        """
+        with sqlite3.connect(self.sqlite_path) as conn:
+            rows = conn.execute(sql, [*params, top_k]).fetchall()
+
+        return [
+            SearchResult(
+                id=row[0],
+                document_name=row[1],
+                fd_number=row[2],
+                section=row[3],
+                chunk_text=row[4],
+                distance=1.0,
+            )
+            for row in rows
+        ]
+
 
 def _cosine_distance(a: list[float], b: list[float]) -> float:
     if not a or not b or len(a) != len(b):

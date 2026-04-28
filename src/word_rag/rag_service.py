@@ -135,12 +135,22 @@ class RagService:
 
     def search(self, question: str, fd_number: str | None = None, section: str | None = None, top_k: int | None = None) -> list[SearchResult]:
         query_emb = self.ollama.embed(question)
-        return self.store.search(
+        results = self.store.search(
             query_embedding=query_emb,
             top_k=top_k or self.settings.top_k,
             fd_number=fd_number,
             section=section,
         )
+        if results:
+            return results
+        if question.strip() and hasattr(self.store, "search_by_text"):
+            return self.store.search_by_text(
+                query_text=question,
+                top_k=top_k or self.settings.top_k,
+                fd_number=fd_number,
+                section=section,
+            )
+        return results
 
     def answer(self, question: str, fd_number: str | None = None, section: str | None = None, top_k: int | None = None) -> dict:
         results = self.search(question=question, fd_number=fd_number, section=section, top_k=top_k)
