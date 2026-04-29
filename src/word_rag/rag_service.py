@@ -138,7 +138,7 @@ class RagService:
         query_emb = self.ollama.embed(question)
         results = self.store.search(
             query_embedding=query_emb,
-            top_k=top_k or self.settings.top_k,
+            top_k=self.settings.top_k if top_k is None else top_k,
             fd_number=fd_number,
             section=section,
         )
@@ -147,7 +147,7 @@ class RagService:
         if question.strip() and hasattr(self.store, "search_by_text"):
             return self.store.search_by_text(
                 query_text=question,
-                top_k=top_k or self.settings.top_k,
+                top_k=self.settings.top_k if top_k is None else top_k,
                 fd_number=fd_number,
                 section=section,
             )

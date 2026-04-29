@@ -125,6 +125,50 @@ def test_search_uses_text_fallback_when_semantic_results_empty():
     assert store.text_search_called is True
 
 
+
+
+def test_search_top_k_override_from_argument():
+    class CaptureStore(DummyStore):
+        def __init__(self):
+            super().__init__()
+            self.semantic_top_k = None
+
+        def search(self, query_embedding, top_k, fd_number=None, section=None):
+            self.semantic_top_k = top_k
+            return []
+
+    store = CaptureStore()
+    service = _service_with(
+        store,
+        SimpleNamespace(embed=lambda text: [0.1, 0.2], embed_many=lambda texts: [[0.1, 0.2] for _ in texts]),
+    )
+    service.settings.top_k = 10
+
+    service.search("query", top_k=12)
+
+    assert store.semantic_top_k == 12
+
+
+def test_search_top_k_uses_settings_default_when_argument_missing():
+    class CaptureStore(DummyStore):
+        def __init__(self):
+            super().__init__()
+            self.semantic_top_k = None
+
+        def search(self, query_embedding, top_k, fd_number=None, section=None):
+            self.semantic_top_k = top_k
+            return []
+
+    store = CaptureStore()
+    service = _service_with(
+        store,
+        SimpleNamespace(embed=lambda text: [0.1, 0.2], embed_many=lambda texts: [[0.1, 0.2] for _ in texts]),
+    )
+    service.settings.top_k = 10
+
+    service.search("query")
+
+    assert store.semantic_top_k == 10
 def test_ingest_uses_batch_embeddings(tmp_path: Path, monkeypatch):
     (tmp_path / "doc1.docx").write_text("x")
 

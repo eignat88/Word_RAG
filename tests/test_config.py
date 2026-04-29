@@ -16,3 +16,16 @@ def test_settings_fallback_to_embedding_model(monkeypatch):
     monkeypatch.setenv("EMBEDDING_MODEL", "legacy-model")
     settings = Settings()
     assert settings.embedding_model == "legacy-model"
+
+
+
+def test_settings_default_top_k(monkeypatch):
+    monkeypatch.delenv("TOP_K", raising=False)
+    settings = Settings()
+    assert settings.top_k == 10
+
+
+def test_settings_top_k_from_env(monkeypatch):
+    monkeypatch.setenv("TOP_K", "12")
+    settings = Settings()
+    assert settings.top_k == 12
