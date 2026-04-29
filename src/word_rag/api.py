@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
 from .config import Settings
+from .embeddings import OllamaError
 from .rag_service import RagService
 
 
@@ -148,9 +149,12 @@ def search(payload: SearchRequest) -> dict:
 
 @app.post("/ask")
 def ask(payload: AskRequest) -> dict:
-    return service.answer(
-        question=payload.question,
-        top_k=payload.top_k,
-        fd_number=payload.fd_number,
-        section=payload.section,
-    )
+    try:
+        return service.answer(
+            question=payload.question,
+            top_k=payload.top_k,
+            fd_number=payload.fd_number,
+            section=payload.section,
+        )
+    except OllamaError as exc:
+        raise HTTPException(status_code=504, detail=str(exc)) from exc
