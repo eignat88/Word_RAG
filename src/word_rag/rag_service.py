@@ -154,7 +154,14 @@ class RagService:
             )
         return results
 
-    def answer(self, question: str, fd_number: str | None = None, section: str | None = None, top_k: int | None = None) -> dict:
+    def answer(
+        self,
+        question: str,
+        fd_number: str | None = None,
+        section: str | None = None,
+        top_k: int | None = None,
+        llm_timeout_sec: float | None = None,
+    ) -> dict:
         results = self.search(question=question, fd_number=fd_number, section=section, top_k=top_k)
         context = "\n\n".join(
             f"[{r.document_name} | {r.section}]\n{r.chunk_text}"
@@ -176,7 +183,7 @@ class RagService:
             "- Перечисли, какие данные отсутствуют для полного ответа.\n"
             "- При низкой уверенности не делай категоричных выводов и явно укажи ограничения."
         )
-        response = self.ollama.answer(prompt)
+        response = self.ollama.answer(prompt, llm_timeout_sec=llm_timeout_sec)
         return {
             "answer": response,
             "sources": [

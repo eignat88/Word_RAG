@@ -19,4 +19,4 @@ class Settings:
     chunk_overlap_chars: int = field(default_factory=lambda: max(120, min(200, int(os.getenv("CHUNK_OVERLAP_CHARS", "150")))))
     index_min_chars: int = field(default_factory=lambda: int(os.getenv("INDEX_MIN_CHARS", "100")))
     embed_timeout_sec: float = field(default_factory=lambda: float(os.getenv("EMBED_TIMEOUT_SEC", "60")))
-    llm_timeout_sec: float = field(default_factory=lambda: float(os.getenv("LLM_TIMEOUT_SEC", "300")))
+    llm_timeout_sec: float = field(default_factory=lambda: float(os.getenv("LLM_TIMEOUT_SEC", "600")))

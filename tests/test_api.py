@@ -18,3 +18,18 @@ def test_ask_returns_504_on_ollama_timeout(monkeypatch):
     assert detail["code"] == "OLLAMA_TIMEOUT"
     assert "увеличьте llm_timeout_sec" in detail["hint"].lower()
     assert "timeout" in detail["error"].lower()
+
+
+def test_ask_passes_llm_timeout_from_payload(monkeypatch):
+    client = TestClient(app)
+    captured = {}
+
+    def _answer(**kwargs):
+        captured.update(kwargs)
+        return {"answer": "ok", "sources": []}
+
+    monkeypatch.setattr("word_rag.api.service.answer", _answer)
+    response = client.post("/ask", json={"question": "test", "llm_timeout_sec": 777})
+
+    assert response.status_code == 200
+    assert captured["llm_timeout_sec"] == 777
