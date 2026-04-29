@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
 from .config import Settings
+from .embeddings import OllamaError
 from .rag_service import RagService
 
 
@@ -26,7 +27,7 @@ class SearchRequest(BaseModel):
 
 
 class AskRequest(SearchRequest):
-    pass
+    llm_timeout_sec: float | None = Field(default=None, ge=1, le=3600)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -79,6 +80,9 @@ def ui() -> str:
 
         <textarea id="question" placeholder="Напиши вопрос по документам..."></textarea>
         <br>
+        <label for="llm-timeout">Таймаут LLM (сек):</label>
+        <input id="llm-timeout" type="number" min="1" max="3600" value="600" />
+        <br>
         <button onclick="ask()">Спросить</button>
 
         <div id="answer"></div>
@@ -87,6 +91,7 @@ def ui() -> str:
     <script>
         async function ask() {
             const question = document.getElementById("question").value;
+            const llmTimeout = Number(document.getElementById("llm-timeout").value || 600);
             const answerBlock = document.getElementById("answer");
 
             if (!question.trim()) {
@@ -101,7 +106,7 @@ def ui() -> str:
                 headers: {
                     "Content-Type": "application/json"
                 },
-                body: JSON.stringify({ question: question })
+                body: JSON.stringify({ question: question, llm_timeout_sec: llmTimeout })
             });
 
             const data = await response.json();
@@ -148,9 +153,21 @@ def search(payload: SearchRequest) -> dict:
 
 @app.post("/ask")
 def ask(payload: AskRequest) -> dict:
-    return service.answer(
-        question=payload.question,
-        top_k=payload.top_k,
-        fd_number=payload.fd_number,
-        section=payload.section,
-    )
+    try:
+        return service.answer(
+            question=payload.question,
+            top_k=payload.top_k,
+            fd_number=payload.fd_number,
+            section=payload.section,
+            llm_timeout_sec=payload.llm_timeout_sec,
+        )
+    except OllamaError as exc:
+        raise HTTPException(
+            status_code=504,
+            detail={
+                "code": "OLLAMA_TIMEOUT",
+                "message": "Модель не успела сгенерировать ответ за отведенное время.",
+                "hint": "Увеличьте LLM_TIMEOUT_SEC или используйте более лёгкую модель.",
+                "error": str(exc),
+            },
+        ) from exc

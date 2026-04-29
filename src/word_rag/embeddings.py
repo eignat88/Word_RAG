@@ -66,18 +66,19 @@ class OllamaClient:
             with ThreadPoolExecutor(max_workers=min(self.embed_max_concurrency, len(texts))) as pool:
                 return list(pool.map(self.embed, texts))
 
-    def answer(self, prompt: str) -> str:
+    def answer(self, prompt: str, llm_timeout_sec: float | None = None) -> str:
+        timeout_sec = self.llm_timeout_sec if llm_timeout_sec is None else llm_timeout_sec
         try:
             response = httpx.post(
                 f"{self.base_url}/api/generate",
                 json={"model": self.llm_model, "prompt": prompt, "stream": False},
-                timeout=self.llm_timeout_sec,
+                timeout=timeout_sec,
             )
             response.raise_for_status()
             return response.json().get("response", "").strip()
         except httpx.TimeoutException as exc:
             raise OllamaError(
-                f"Ollama generation timeout after {self.llm_timeout_sec}s. "
+                f"Ollama generation timeout after {timeout_sec}s. "
                 f"Try increasing LLM_TIMEOUT_SEC or using a smaller model."
             ) from exc
         except httpx.HTTPError as exc:
