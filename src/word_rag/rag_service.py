@@ -7,14 +7,12 @@ from typing import Callable
 from .chunking import build_chunks
 from .config import Settings
 from .docx_parser import extract_fd_number, parse_docx_sections
-from .embeddings import OllamaClient
+from .embeddings import OllamaClient, OllamaError
 from .entity_extractor import extract_dax_numbers, extract_entities
 from .filtering import should_skip_chunk
 from .models import SearchResult
 from .storage import KnowledgeBaseStore
 from .storage_sqlite import SQLiteKnowledgeBaseStore
-
-
 class RagService:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
@@ -75,7 +73,10 @@ class RagService:
                     continue
                 filtered_chunks.append(chunk)
 
-            embeddings = [self.ollama.embed(c.chunk_text) for c in filtered_chunks]
+            try:
+                embeddings = self.ollama.embed_many([c.chunk_text for c in filtered_chunks])
+            except (OllamaError, RuntimeError):
+                embeddings = [self.ollama.embed(c.chunk_text) for c in filtered_chunks]
             if replace and hasattr(self.store, "replace_document_chunks_with_ids"):
                 saved_chunks = self.store.replace_document_chunks_with_ids(path.name, filtered_chunks, embeddings)
             else:
