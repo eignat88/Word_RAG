@@ -14,4 +14,7 @@ def test_ask_returns_504_on_ollama_timeout(monkeypatch):
     response = client.post("/ask", json={"question": "test"})
 
     assert response.status_code == 504
-    assert "timeout" in response.json()["detail"].lower()
+    detail = response.json()["detail"]
+    assert detail["code"] == "OLLAMA_TIMEOUT"
+    assert "увеличьте llm_timeout_sec" in detail["hint"].lower()
+    assert "timeout" in detail["error"].lower()

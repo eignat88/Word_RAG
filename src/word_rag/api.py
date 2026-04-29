@@ -157,4 +157,12 @@ def ask(payload: AskRequest) -> dict:
             section=payload.section,
         )
     except OllamaError as exc:
-        raise HTTPException(status_code=504, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=504,
+            detail={
+                "code": "OLLAMA_TIMEOUT",
+                "message": "Модель не успела сгенерировать ответ за отведенное время.",
+                "hint": "Увеличьте LLM_TIMEOUT_SEC или используйте более лёгкую модель.",
+                "error": str(exc),
+            },
+        ) from exc
