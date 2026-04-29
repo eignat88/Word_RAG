@@ -215,3 +215,41 @@ def test_ingest_falls_back_to_single_embeddings_when_batch_fails(tmp_path: Path,
 
     assert ollama.batch_calls == 1
     assert ollama.single_calls == 2
+
+
+def test_answer_prompt_contains_required_structure_and_restrictions():
+    class CaptureOllama:
+        def __init__(self):
+            self.prompt = None
+
+        def answer(self, prompt):
+            self.prompt = prompt
+            return "ok"
+
+    class ResultStore(DummyStore):
+        def search(self, query_embedding, top_k, fd_number=None, section=None):
+            return [
+                SimpleNamespace(
+                    id=1,
+                    document_name="doc1.docx",
+                    fd_number="FD-1",
+                    section="Раздел 1",
+                    chunk_text="Текст чанка",
+                    distance=0.1,
+                )
+            ]
+
+    ollama = CaptureOllama()
+    service = _service_with(ResultStore(), ollama)
+    service.settings.top_k = 3
+    service.search = lambda **kwargs: ResultStore().search(None, 3)  # bypass embeddings
+
+    service.answer("Что сказано про сроки?")
+
+    assert ollama.prompt is not None
+    assert "1) Краткий ответ (1–3 пункта):" in ollama.prompt
+    assert "2) Доказательства из источников:" in ollama.prompt
+    assert "3) Что неизвестно / чего не хватает в контексте:" in ollama.prompt
+    assert "[document | section]" in ollama.prompt
+    assert "Не используй внешние знания" in ollama.prompt
+    assert "не делай категоричных выводов" in ollama.prompt
