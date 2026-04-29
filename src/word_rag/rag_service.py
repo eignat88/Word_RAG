@@ -7,7 +7,7 @@ from typing import Callable
 from .chunking import build_chunks
 from .config import Settings
 from .docx_parser import extract_fd_number, parse_docx_sections
-from .embeddings import OllamaClient
+from .ai_provider import AIProvider, build_ai_provider
 from .entity_extractor import extract_dax_numbers, extract_entities
 from .filtering import should_skip_chunk
 from .models import SearchResult
@@ -18,13 +18,7 @@ from .storage_sqlite import SQLiteKnowledgeBaseStore
 class RagService:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
-        self.ollama = OllamaClient(
-            base_url=settings.ollama_base_url,
-            embedding_model=settings.embedding_model,
-            llm_model=settings.llm_model,
-            embed_timeout_sec=settings.embed_timeout_sec,
-            llm_timeout_sec=settings.llm_timeout_sec,
-        )
+        self.ai: AIProvider = build_ai_provider(settings)
         if settings.storage_backend.lower() == "postgres":
             self.store = KnowledgeBaseStore(
                 database_url=settings.database_url,
@@ -75,7 +69,7 @@ class RagService:
                     continue
                 filtered_chunks.append(chunk)
 
-            embeddings = [self.ollama.embed(c.chunk_text) for c in filtered_chunks]
+            embeddings = [self.ai.embed(c.chunk_text) for c in filtered_chunks]
             if replace and hasattr(self.store, "replace_document_chunks_with_ids"):
                 saved_chunks = self.store.replace_document_chunks_with_ids(path.name, filtered_chunks, embeddings)
             else:
@@ -134,7 +128,7 @@ class RagService:
         return {"documents": processed_docs, "chunks": inserted_chunks, "skipped_chunks": skipped_chunks, "elapsed_sec": elapsed}
 
     def search(self, question: str, fd_number: str | None = None, section: str | None = None, top_k: int | None = None) -> list[SearchResult]:
-        query_emb = self.ollama.embed(question)
+        query_emb = self.ai.embed(question)
         results = self.store.search(
             query_embedding=query_emb,
             top_k=top_k or self.settings.top_k,
@@ -165,7 +159,7 @@ class RagService:
             f"{question}\n\n"
             "Ответь строго на основе контекста. Если данных недостаточно — так и скажи."
         )
-        response = self.ollama.answer(prompt)
+        response = self.ai.answer(prompt)
         return {
             "answer": response,
             "sources": [

@@ -19,3 +19,8 @@ class Settings:
     index_min_chars: int = field(default_factory=lambda: int(os.getenv("INDEX_MIN_CHARS", "100")))
     embed_timeout_sec: float = field(default_factory=lambda: float(os.getenv("EMBED_TIMEOUT_SEC", "60")))
     llm_timeout_sec: float = field(default_factory=lambda: float(os.getenv("LLM_TIMEOUT_SEC", "300")))
+    ai_provider: str = field(default_factory=lambda: os.getenv("AI_PROVIDER", "ollama"))
+    openai_compat_base_url: str = field(default_factory=lambda: os.getenv("OPENAI_COMPAT_BASE_URL", "https://api.openai.com/v1"))
+    openai_compat_api_key: str = field(default_factory=lambda: os.getenv("OPENAI_COMPAT_API_KEY", ""))
+    openai_compat_embedding_model: str = field(default_factory=lambda: os.getenv("OPENAI_COMPAT_EMBEDDING_MODEL", os.getenv("EMBED_MODEL", os.getenv("EMBEDDING_MODEL", "text-embedding-3-small"))))
+    openai_compat_llm_model: str = field(default_factory=lambda: os.getenv("OPENAI_COMPAT_LLM_MODEL", os.getenv("LLM_MODEL", "gpt-4o-mini")))
