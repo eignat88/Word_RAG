@@ -62,6 +62,7 @@ class RagService:
                 sections=sections,
                 min_chars=self.settings.chunk_min_chars,
                 max_chars=self.settings.chunk_max_chars,
+                overlap_chars=self.settings.chunk_overlap_chars,
             )
 
             filtered_chunks = []
