@@ -135,23 +135,61 @@ class RagService:
         return {"documents": processed_docs, "chunks": inserted_chunks, "skipped_chunks": skipped_chunks, "elapsed_sec": elapsed}
 
     def search(self, question: str, fd_number: str | None = None, section: str | None = None, top_k: int | None = None) -> list[SearchResult]:
+        effective_top_k = top_k or self.settings.top_k
+        lexical_top_k = getattr(self.settings, "lexical_top_k", effective_top_k)
+        alpha = max(0.0, min(1.0, getattr(self.settings, "hybrid_alpha", 0.7)))
+
         query_emb = self.ollama.embed(question)
-        results = self.store.search(
+        vector_results = self.store.search(
             query_embedding=query_emb,
-            top_k=top_k or self.settings.top_k,
+            top_k=effective_top_k,
             fd_number=fd_number,
             section=section,
         )
-        if results:
-            return results
+
+        lexical_results: list[SearchResult] = []
         if question.strip() and hasattr(self.store, "search_by_text"):
-            return self.store.search_by_text(
+            lexical_results = self.store.search_by_text(
                 query_text=question,
-                top_k=top_k or self.settings.top_k,
+                top_k=lexical_top_k,
                 fd_number=fd_number,
                 section=section,
             )
-        return results
+
+        if not vector_results and not lexical_results:
+            return []
+
+        def _dedup_key(result: SearchResult):
+            result_id = getattr(result, "id", None)
+            if result_id is not None:
+                return ("id", result_id)
+            return (result.document_name, result.section, result.chunk_text)
+
+        vector_scores: dict[object, float] = {}
+        for item in vector_results:
+            key = _dedup_key(item)
+            vector_scores[key] = max(vector_scores.get(key, 0.0), 1.0 / (1.0 + max(item.distance, 0.0)))
+
+        lexical_scores: dict[object, float] = {}
+        for idx, item in enumerate(lexical_results):
+            key = _dedup_key(item)
+            score = 1.0 / (idx + 1)
+            lexical_scores[key] = max(lexical_scores.get(key, 0.0), score)
+
+        merged: dict[object, SearchResult] = {}
+        for item in [*vector_results, *lexical_results]:
+            key = _dedup_key(item)
+            merged.setdefault(key, item)
+
+        reranked = sorted(
+            merged.values(),
+            key=lambda item: (
+                alpha * vector_scores.get(_dedup_key(item), 0.0)
+                + (1.0 - alpha) * lexical_scores.get(_dedup_key(item), 0.0)
+            ),
+            reverse=True,
+        )
+        return reranked[:effective_top_k]
 
     def answer(self, question: str, fd_number: str | None = None, section: str | None = None, top_k: int | None = None) -> dict:
         results = self.search(question=question, fd_number=fd_number, section=section, top_k=top_k)

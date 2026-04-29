@@ -14,6 +14,8 @@ class Settings:
     embedding_model: str = field(default_factory=lambda: os.getenv("EMBED_MODEL", os.getenv("EMBEDDING_MODEL", "nomic-embed-text")))
     llm_model: str = field(default_factory=lambda: os.getenv("LLM_MODEL", "llama3"))
     top_k: int = field(default_factory=lambda: int(os.getenv("TOP_K", "5")))
+    lexical_top_k: int = field(default_factory=lambda: int(os.getenv("LEXICAL_TOP_K", os.getenv("TOP_K", "5"))))
+    hybrid_alpha: float = field(default_factory=lambda: float(os.getenv("HYBRID_ALPHA", "0.7")))
     chunk_min_chars: int = field(default_factory=lambda: int(os.getenv("CHUNK_MIN_CHARS", "300")))
     chunk_max_chars: int = field(default_factory=lambda: int(os.getenv("CHUNK_MAX_CHARS", "1000")))
     index_min_chars: int = field(default_factory=lambda: int(os.getenv("INDEX_MIN_CHARS", "100")))

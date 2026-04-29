@@ -57,6 +57,9 @@ def _service_with(store, ollama):
         chunk_min_chars=1,
         chunk_max_chars=100,
         index_min_chars=1,
+        top_k=5,
+        lexical_top_k=5,
+        hybrid_alpha=0.7,
     )
     service.store = store
     service.ollama = ollama
@@ -111,7 +114,7 @@ def test_replace_does_not_delete_if_embedding_fails(tmp_path: Path, monkeypatch)
     assert store.upserted is False
 
 
-def test_search_uses_text_fallback_when_semantic_results_empty():
+def test_search_uses_lexical_results_when_vector_empty():
     store = DummyStore()
     service = _service_with(
         store,
@@ -171,3 +174,46 @@ def test_ingest_falls_back_to_single_embeddings_when_batch_fails(tmp_path: Path,
 
     assert ollama.batch_calls == 1
     assert ollama.single_calls == 2
+
+
+def test_search_hybrid_merges_and_deduplicates_results():
+    store = DummyStore()
+    store.search = lambda *args, **kwargs: [
+        SimpleNamespace(id=1, document_name="doc1.docx", fd_number="FD-1", section="S1", chunk_text="same", distance=0.2),
+        SimpleNamespace(id=2, document_name="doc2.docx", fd_number="FD-2", section="S2", chunk_text="vector-only", distance=0.4),
+    ]
+    store.search_by_text = lambda *args, **kwargs: [
+        SimpleNamespace(id=1, document_name="doc1.docx", fd_number="FD-1", section="S1", chunk_text="same", distance=0.9),
+        SimpleNamespace(id=3, document_name="doc3.docx", fd_number="FD-3", section="S3", chunk_text="lex-only", distance=1.1),
+    ]
+
+    service = _service_with(store, SimpleNamespace(embed=lambda text: [0.1, 0.2], embed_many=lambda texts: [[0.1, 0.2] for _ in texts]))
+    service.settings.top_k = 10
+
+    results = service.search("query")
+
+    assert [r.id for r in results] == [1, 2, 3]
+    assert len(results) == 3
+
+
+def test_search_hybrid_rerank_changes_pure_vector_order():
+    store = DummyStore()
+    vector_results = [
+        SimpleNamespace(id=10, document_name="docA.docx", fd_number="FD-A", section="S", chunk_text="A", distance=0.1),
+        SimpleNamespace(id=20, document_name="docB.docx", fd_number="FD-B", section="S", chunk_text="B", distance=0.2),
+    ]
+    store.search = lambda *args, **kwargs: vector_results
+    store.search_by_text = lambda *args, **kwargs: [
+        SimpleNamespace(id=20, document_name="docB.docx", fd_number="FD-B", section="S", chunk_text="B", distance=0.8),
+        SimpleNamespace(id=10, document_name="docA.docx", fd_number="FD-A", section="S", chunk_text="A", distance=0.9),
+    ]
+
+    service = _service_with(store, SimpleNamespace(embed=lambda text: [0.1, 0.2], embed_many=lambda texts: [[0.1, 0.2] for _ in texts]))
+    service.settings.top_k = 2
+    service.settings.hybrid_alpha = 0.2
+
+    pure_vector_order = [r.id for r in vector_results]
+    reranked_order = [r.id for r in service.search("query")]
+
+    assert pure_vector_order == [10, 20]
+    assert reranked_order == [20, 10]
