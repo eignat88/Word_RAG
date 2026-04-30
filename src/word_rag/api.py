@@ -95,17 +95,28 @@ def ui() -> str:
             }
 
             answerBlock.innerText = "Ищу ответ...";
+            const startedAt = performance.now();
 
-            const response = await fetch("/ask", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({ question: question })
-            });
+            try {
+                const response = await fetch("/ask", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({ question: question })
+                });
 
-            const data = await response.json();
-            answerBlock.innerText = JSON.stringify(data, null, 2);
+                const data = await response.json();
+                const elapsedMs = Math.round(performance.now() - startedAt);
+                const elapsedSec = (elapsedMs / 1000).toFixed(2);
+
+                answerBlock.innerText = `Время выполнения: ${elapsedMs} мс (${elapsedSec} с)
+
+${JSON.stringify(data, null, 2)}`;
+            } catch (error) {
+                const elapsedMs = Math.round(performance.now() - startedAt);
+                answerBlock.innerText = `Ошибка после ${elapsedMs} мс: ${error}`;
+            }
         }
     </script>
 </body>
