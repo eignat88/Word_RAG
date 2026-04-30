@@ -164,25 +164,16 @@ def ui() -> str:
         .tab-content.active {
             display: block;
         }
-        #settings-table {
+        #settings-editor {
             margin-top: 16px;
             background: #f1f3f5;
             border-radius: 10px;
             padding: 16px;
-            overflow-x: auto;
             width: 100%;
-            border-collapse: collapse;
-        }
-        #settings-table td, #settings-table th {
-            border-bottom: 1px solid #d9dee5;
-            padding: 8px;
-            text-align: left;
-            vertical-align: top;
-        }
-        #settings-table input {
-            width: 100%;
+            min-height: 280px;
+            font-family: monospace;
+            font-size: 14px;
             box-sizing: border-box;
-            padding: 8px;
         }
         #settings-status {
             margin-top: 12px;
@@ -207,12 +198,7 @@ def ui() -> str:
         </div>
 
         <div id="tab-settings" class="tab-content">
-            <table id="settings-table">
-                <thead>
-                    <tr><th>Key</th><th>Value</th></tr>
-                </thead>
-                <tbody id="settings-body"></tbody>
-            </table>
+            <textarea id="settings-editor"></textarea>
             <button onclick="saveSettings()">Сохранить настройки</button>
             <div id="settings-status"></div>
         </div>
@@ -228,6 +214,9 @@ def ui() -> str:
 
             document.querySelectorAll(".tab-content").forEach((content) => content.classList.remove("active"));
             document.getElementById(`tab-${tab}`).classList.add("active");
+            if (tab === "settings") {
+                loadSettings();
+            }
         }
 
         async function ask() {
@@ -254,25 +243,27 @@ def ui() -> str:
         }
 
         function renderSettings() {
-            const tbody = document.getElementById("settings-body");
-            tbody.innerHTML = "";
-            Object.entries(settingsData).forEach(([key, value]) => {
-                const row = document.createElement("tr");
-                row.innerHTML = `
-                    <td>${key}</td>
-                    <td><input data-key="${key}" value="${String(value).replaceAll('"', "&quot;")}"></td>
-                `;
-                tbody.appendChild(row);
-            });
+            const editor = document.getElementById("settings-editor");
+            editor.value = JSON.stringify(settingsData, null, 2);
+        }
+
+        async function loadSettings() {
+            const response = await fetch("/settings");
+            if (!response.ok) return;
+            settingsData = await response.json();
+            renderSettings();
         }
 
         async function saveSettings() {
-            const payload = {};
-            document.querySelectorAll("#settings-body input").forEach((el) => {
-                payload[el.getAttribute("data-key")] = el.value;
-            });
-
+            const editor = document.getElementById("settings-editor");
             const status = document.getElementById("settings-status");
+            let payload;
+            try {
+                payload = JSON.parse(editor.value);
+            } catch (error) {
+                status.innerText = "Некорректный JSON";
+                return;
+            }
             status.innerText = "Сохраняю...";
             const response = await fetch("/settings", {
                 method: "PUT",
