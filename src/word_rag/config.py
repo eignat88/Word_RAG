@@ -1,6 +1,10 @@
 from dataclasses import dataclass, field
 import os
 
+from dotenv import load_dotenv
+
+load_dotenv(override=True)
+
 
 @dataclass(frozen=True)
 class Settings:
