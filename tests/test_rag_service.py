@@ -30,7 +30,7 @@ class DummyStore:
 
     def search_by_text(self, query_text, top_k, fd_number=None, section=None):
         self.text_search_called = True
-        return [SimpleNamespace(id=1, document_name="doc1.docx", fd_number="FD-1", section="S", chunk_text="chunk", distance=1.0)]
+        return [SimpleNamespace(id=1, document_name="doc1.docx", fd_number="FD-1", section="S", chunk_text="негабарит ИМ правила", distance=0.2)]
 
 
 class DummyOllama:
@@ -57,6 +57,12 @@ def _service_with(store, ollama):
         chunk_min_chars=1,
         chunk_max_chars=100,
         index_min_chars=1,
+        top_k=5,
+        top_k_initial=12,
+        max_distance_threshold=0.27,
+        min_final_score_threshold=0.45,
+        semantic_weight=0.7,
+        lexical_weight=0.3,
     )
     service.store = store
     service.ollama = ollama
@@ -168,7 +174,7 @@ def test_search_top_k_uses_settings_default_when_argument_missing():
 
     service.search("query")
 
-    assert store.semantic_top_k == 10
+    assert store.semantic_top_k == 12
 def test_ingest_uses_batch_embeddings(tmp_path: Path, monkeypatch):
     (tmp_path / "doc1.docx").write_text("x")
 
@@ -253,3 +259,21 @@ def test_answer_prompt_contains_required_structure_and_restrictions():
     assert "[document | section]" in ollama.prompt
     assert "Не используй внешние знания" in ollama.prompt
     assert "не делай категоричных выводов" in ollama.prompt
+    assert "Используй только релевантные источники" in ollama.prompt
+
+
+def test_rerank_filters_irrelevant_chunks():
+    service = _service_with(
+        DummyStore(),
+        SimpleNamespace(embed=lambda text: [0.1, 0.2], embed_many=lambda texts: [[0.1, 0.2] for _ in texts]),
+    )
+    chunks = [
+        SimpleNamespace(id=1, document_name="a", fd_number="DAX-11250", section="S", chunk_text="Партионный учет и несмешивание партий", distance=0.2),
+        SimpleNamespace(id=2, document_name="b", fd_number="DAX-7407", section="S", chunk_text="Негабарит ИМ", distance=0.23),
+    ]
+
+    reranked = service._rerank_and_filter("что такое партионный учет", chunks)
+
+    assert len(reranked) == 1
+    assert reranked[0].fd_number == "DAX-11250"
+    assert reranked[0].lexical_score is not None
