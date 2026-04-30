@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from dataclasses import asdict, fields
+
 from fastapi import FastAPI
+from fastapi import HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
@@ -11,6 +14,17 @@ from .rag_service import RagService
 app = FastAPI(title="Word RAG API", version="0.1.0")
 settings = Settings()
 service = RagService(settings)
+EDITABLE_SETTINGS_FIELDS = {
+    "embedding_model",
+    "llm_model",
+    "top_k",
+    "chunk_min_chars",
+    "chunk_max_chars",
+    "index_min_chars",
+    "embed_timeout_sec",
+    "llm_timeout_sec",
+}
+_SETTINGS_TYPE_BY_FIELD = {f.name: f.type for f in fields(Settings)}
 
 
 class IngestRequest(BaseModel):
@@ -27,6 +41,26 @@ class SearchRequest(BaseModel):
 
 class AskRequest(SearchRequest):
     pass
+
+
+class SettingsPatchRequest(BaseModel):
+    changes: dict[str, object]
+
+
+def _parse_settings_value(key: str, value: object) -> object:
+    expected_type = _SETTINGS_TYPE_BY_FIELD[key]
+    if expected_type is int:
+        return int(value)
+    if expected_type is float:
+        return float(value)
+    if expected_type is str:
+        return str(value)
+    return value
+
+
+def _ui_settings_payload() -> dict:
+    full = asdict(settings)
+    return {k: full[k] for k in EDITABLE_SETTINGS_FIELDS}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -154,3 +188,28 @@ def ask(payload: AskRequest) -> dict:
         fd_number=payload.fd_number,
         section=payload.section,
     )
+
+
+@app.get("/settings")
+def get_settings() -> dict:
+    return _ui_settings_payload()
+
+
+@app.post("/settings")
+def update_settings(payload: SettingsPatchRequest) -> dict:
+    global settings
+    global service
+
+    changes = payload.changes
+    unknown = sorted(set(changes.keys()) - EDITABLE_SETTINGS_FIELDS)
+    if unknown:
+        raise HTTPException(status_code=422, detail=f"Unknown settings fields: {', '.join(unknown)}")
+
+    next_settings_dict = asdict(settings)
+    for key in EDITABLE_SETTINGS_FIELDS:
+        if key in changes:
+            next_settings_dict[key] = _parse_settings_value(key, changes[key])
+
+    settings = Settings(**next_settings_dict)
+    service = RagService(settings)
+    return _ui_settings_payload()
