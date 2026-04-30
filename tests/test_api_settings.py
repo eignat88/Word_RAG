@@ -44,3 +44,20 @@ def test_settings_endpoint_masks_database_password(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["database_url"] == "postgresql://user:***@localhost:5432/mydb"
+
+
+def test_update_settings_changes_values(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:password@localhost:5432/mydb")
+    api.settings = Settings()
+    api.service = api.RagService(api.settings)
+
+    client = TestClient(api.app)
+    response = client.put(
+        "/settings",
+        json={"top_k": 42, "database_url": "postgresql://newuser:newpass@db:5432/app"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["top_k"] == 42
+    assert payload["database_url"] == "postgresql://newuser:***@db:5432/app"

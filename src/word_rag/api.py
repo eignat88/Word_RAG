@@ -5,6 +5,7 @@ import json
 from urllib.parse import urlsplit, urlunsplit
 
 from fastapi import FastAPI
+from fastapi import HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
@@ -15,6 +16,24 @@ from .rag_service import RagService
 app = FastAPI(title="Word RAG API", version="0.1.0")
 settings = Settings()
 service = RagService(settings)
+
+EDITABLE_SETTINGS_FIELDS = {
+    "storage_backend",
+    "database_url",
+    "pg_schema",
+    "pg_documents_table",
+    "pg_chunks_table",
+    "sqlite_path",
+    "ollama_base_url",
+    "embedding_model",
+    "llm_model",
+    "top_k",
+    "chunk_min_chars",
+    "chunk_max_chars",
+    "index_min_chars",
+    "embed_timeout_sec",
+    "llm_timeout_sec",
+}
 
 
 def _mask_database_url(database_url: str) -> str:
@@ -34,6 +53,33 @@ def _ui_settings_payload() -> dict:
     payload = asdict(settings)
     payload["database_url"] = _mask_database_url(settings.database_url)
     return payload
+
+
+def _parse_settings_value(key: str, value: object) -> object:
+    current_value = getattr(settings, key)
+    if isinstance(current_value, int):
+        return int(value)
+    if isinstance(current_value, float):
+        return float(value)
+    return str(value)
+
+
+def _apply_settings_patch(changes: dict[str, object]) -> dict:
+    global settings, service
+    unknown = sorted(set(changes.keys()) - EDITABLE_SETTINGS_FIELDS)
+    if unknown:
+        raise HTTPException(status_code=400, detail=f"Unknown settings fields: {', '.join(unknown)}")
+
+    next_settings_dict = asdict(settings)
+    for key, value in changes.items():
+        try:
+            next_settings_dict[key] = _parse_settings_value(key, value)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid value for {key}: {value}") from exc
+
+    settings = Settings(**next_settings_dict)
+    service = RagService(settings)
+    return _ui_settings_payload()
 
 
 class IngestRequest(BaseModel):
@@ -118,13 +164,29 @@ def ui() -> str:
         .tab-content.active {
             display: block;
         }
-        #settings {
+        #settings-table {
             margin-top: 16px;
             background: #f1f3f5;
             border-radius: 10px;
             padding: 16px;
-            white-space: pre-wrap;
             overflow-x: auto;
+            width: 100%;
+            border-collapse: collapse;
+        }
+        #settings-table td, #settings-table th {
+            border-bottom: 1px solid #d9dee5;
+            padding: 8px;
+            text-align: left;
+            vertical-align: top;
+        }
+        #settings-table input {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 8px;
+        }
+        #settings-status {
+            margin-top: 12px;
+            color: #444;
         }
     </style>
 </head>
@@ -145,12 +207,19 @@ def ui() -> str:
         </div>
 
         <div id="tab-settings" class="tab-content">
-            <pre id="settings"></pre>
+            <table id="settings-table">
+                <thead>
+                    <tr><th>Key</th><th>Value</th></tr>
+                </thead>
+                <tbody id="settings-body"></tbody>
+            </table>
+            <button onclick="saveSettings()">Сохранить настройки</button>
+            <div id="settings-status"></div>
         </div>
     </div>
 
     <script>
-        const settingsData = __SETTINGS_JSON__;
+        let settingsData = __SETTINGS_JSON__;
 
         function switchTab(event) {
             const tab = event.currentTarget.getAttribute("data-tab");
@@ -184,7 +253,43 @@ def ui() -> str:
             answerBlock.innerText = JSON.stringify(data, null, 2);
         }
 
-        document.getElementById("settings").innerText = JSON.stringify(settingsData, null, 2);
+        function renderSettings() {
+            const tbody = document.getElementById("settings-body");
+            tbody.innerHTML = "";
+            Object.entries(settingsData).forEach(([key, value]) => {
+                const row = document.createElement("tr");
+                row.innerHTML = `
+                    <td>${key}</td>
+                    <td><input data-key="${key}" value="${String(value).replaceAll('"', "&quot;")}"></td>
+                `;
+                tbody.appendChild(row);
+            });
+        }
+
+        async function saveSettings() {
+            const payload = {};
+            document.querySelectorAll("#settings-body input").forEach((el) => {
+                payload[el.getAttribute("data-key")] = el.value;
+            });
+
+            const status = document.getElementById("settings-status");
+            status.innerText = "Сохраняю...";
+            const response = await fetch("/settings", {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload)
+            });
+            const data = await response.json();
+            if (!response.ok) {
+                status.innerText = data.detail || "Ошибка сохранения";
+                return;
+            }
+            settingsData = data;
+            renderSettings();
+            status.innerText = "Настройки сохранены";
+        }
+
+        renderSettings();
     </script>
 </body>
 </html>
@@ -194,6 +299,11 @@ def ui() -> str:
 @app.get("/settings")
 def get_settings() -> dict:
     return _ui_settings_payload()
+
+
+@app.put("/settings")
+def update_settings(payload: dict[str, object]) -> dict:
+    return _apply_settings_patch(payload)
 
 
 @app.get("/health")
